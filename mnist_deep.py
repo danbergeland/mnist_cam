@@ -30,6 +30,7 @@ from __future__ import print_function
 import argparse
 import sys
 import tempfile
+import os
 
 from tensorflow.examples.tutorials.mnist import input_data
 
@@ -154,25 +155,29 @@ def main(_):
   train_writer.add_graph(tf.get_default_graph())
   
   #ADDED CODE
-  export_dir = 'models'
-  builder = tf.saved_model_builder.SavedModelBuilder(export_dir)
-
-  with tf.Session(graph = tf.Graph()) as sess:
+  export_dir = './mnist_model'
+  builder = tf.saved_model.builder.SavedModelBuilder(export_dir)
+  
+  #Use CPU
+  os.environ['CUDA_VISIBLE_DEVICES'] = ''
+  
+  with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
-    builder.add_meta_graph_and_variables(sess,[tag_constants.TRAINING],
-                                         signature_def_map= {"magic_model": tf.saved_model.signature_def_utils.predict_signature_def(
-                                                 inputs= {"egg": x, "bacon": y},
-                                                 outputs= {"spam": z}))
+    builder.add_meta_graph_and_variables(sess,["TRAIN"],
+                                         signature_def_map= {"mnist_model": tf.saved_model.signature_def_utils.predict_signature_def(
+                                                 inputs= {"in": x},
+                                                 outputs= {"out": y_conv})})
     for i in range(2000):
       batch = mnist.train.next_batch(50)
       if i % 100 == 0:
-        train_accuracy = accuracy.eval(feed_dict={
-            x: batch[0], y_: batch[1], keep_prob: 1.0})
+        train_accuracy = accuracy.eval(feed_dict={x: batch[0], y_: batch[1], keep_prob: 1.0})
         print('step %d, training accuracy %g' % (i, train_accuracy))
       train_step.run(feed_dict={x: batch[0], y_: batch[1], keep_prob: 0.5})
 
     print('test accuracy %g' % accuracy.eval(feed_dict={
         x: mnist.test.images, y_: mnist.test.labels, keep_prob: 1.0}))
+        
+    builder.save()
     
 
 if __name__ == '__main__':
