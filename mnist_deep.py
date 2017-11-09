@@ -128,13 +128,15 @@ def main(_):
   mnist = input_data.read_data_sets(FLAGS.data_dir, one_hot=True)
 
   # Create the model
-  x = tf.placeholder(tf.float32, [None, 784])
+  x = tf.placeholder(tf.float32, [None, 784], name="in")
 
   # Define loss and optimizer
   y_ = tf.placeholder(tf.float32, [None, 10])
 
   # Build the graph for the deep net
   y_conv, keep_prob = deepnn(x)
+  
+  softmax = tf.nn.softmax(y_conv,name="softout")
 
   with tf.name_scope('loss'):
     cross_entropy = tf.nn.softmax_cross_entropy_with_logits(labels=y_,
@@ -163,11 +165,8 @@ def main(_):
   
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
-    builder.add_meta_graph_and_variables(sess,["TRAIN"],
-                                         signature_def_map= {"mnist_model": tf.saved_model.signature_def_utils.predict_signature_def(
-                                                 inputs= {"in": x},
-                                                 outputs= {"out": y_conv})})
-    for i in range(2000):
+
+    for i in range(5000):
       batch = mnist.train.next_batch(50)
       if i % 100 == 0:
         train_accuracy = accuracy.eval(feed_dict={x: batch[0], y_: batch[1], keep_prob: 1.0})
@@ -176,7 +175,45 @@ def main(_):
 
     print('test accuracy %g' % accuracy.eval(feed_dict={
         x: mnist.test.images, y_: mnist.test.labels, keep_prob: 1.0}))
-        
+    
+    # Build the signature_def_map.
+    classification_inputs = tf.saved_model.utils.build_tensor_info(x)
+    classification_outputs_scores = tf.saved_model.utils.build_tensor_info(softmax)
+
+    classification_signature = (
+        tf.saved_model.signature_def_utils.build_signature_def(
+          inputs={
+              tf.saved_model.signature_constants.CLASSIFY_INPUTS:
+                  classification_inputs
+          },
+          outputs={
+              tf.saved_model.signature_constants.CLASSIFY_OUTPUT_SCORES:
+                  classification_outputs_scores
+          },
+          method_name=tf.saved_model.signature_constants.CLASSIFY_METHOD_NAME))
+
+    
+    tensor_info_x = tf.saved_model.utils.build_tensor_info(x)
+    tensor_info_y = tf.saved_model.utils.build_tensor_info(y_conv)
+
+    prediction_signature = (
+        tf.saved_model.signature_def_utils.build_signature_def(
+          inputs={'images': tensor_info_x},
+          outputs={'scores': tensor_info_y},
+          method_name=tf.saved_model.signature_constants.PREDICT_METHOD_NAME))
+
+    legacy_init_op = tf.group(tf.tables_initializer(), name='legacy_init_op')
+    
+    builder.add_meta_graph_and_variables(
+          sess, [tf.saved_model.tag_constants.SERVING],
+          signature_def_map={
+              'predict_images':
+                  prediction_signature,
+              tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
+                  classification_signature,
+          },
+          legacy_init_op=legacy_init_op) 
+    
     builder.save()
     
 
